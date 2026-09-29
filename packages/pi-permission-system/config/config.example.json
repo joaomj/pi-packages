@@ -7,10 +7,7 @@
   "doublePressToConfirm": true,
   "permissionDialogKeys": {
     "approve": "y",
-    "approveSession": "s",
-    "approveSessionBoth": "b",
-    "deny": "n",
-    "denyWithReason": "r"
+    "deny": "n"
   },
 
   "forwardingTimeoutMs": 600000,

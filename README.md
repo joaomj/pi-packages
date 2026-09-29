@@ -1,5 +1,30 @@
 # pi-packages
 
+## Personal permission-dialog fork
+
+The `yes-no-permissions` branch changes only the permission extension and its documentation.
+The permission prompt offers **Yes** (approve the displayed scope for this session) and **No** (enter a denial reason).
+Eligible file-access approvals include both reads and writes.
+Other permission checks and forwarded subagent scope selection remain in place.
+
+This branch starts from the upstream `pi-permission-system-v35.0.0` tag.
+It is not published to npm; the npm package below still refers to upstream.
+Use a local checkout to load this fork without loading the other monorepo extensions:
+
+```bash
+git clone --branch yes-no-permissions https://github.com/joaomj/pi-packages.git
+cd pi-packages
+pnpm --filter @gotgenes/pi-permission-system... install --frozen-lockfile --ignore-scripts
+pi remove npm:@gotgenes/pi-permission-system
+pi install ./packages/pi-permission-system
+```
+
+Restart Pi after switching packages.
+Do not load the upstream permission extension and this fork together.
+See the [permission extension](packages/pi-permission-system/README.md) for approval limits and configuration.
+
+## Upstream packages
+
 A monorepo of [Pi](https://github.com/badlogic/pi-mono) extension packages, published to npm under `@gotgenes/`.
 Some packages (like pi-permission-system) are designed for broad use; others scratch a personal itch and are shared in case they help others.
 

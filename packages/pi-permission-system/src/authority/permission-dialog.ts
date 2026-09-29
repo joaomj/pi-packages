@@ -63,7 +63,6 @@ export interface PermissionDecisionUi {
 const APPROVE_OPTION = "Yes";
 const APPROVE_FOR_SESSION_OPTION = "Yes, for this session";
 const DENY_OPTION = "No";
-const DENY_WITH_REASON_OPTION = "No, provide reason";
 
 /**
  * A session-granting decision, naming its width only when it is not the
@@ -121,16 +120,12 @@ export function isPermissionDecisionState(
 }
 
 export interface RequestPermissionOptions {
-  /** Override the "for this session" option label (e.g. to show the suggested pattern). */
+  /** Describe the scope granted by Yes (for example, the suggested pattern). */
   sessionLabel?: string;
-  /**
-   * Present iff this ask's session grant can be widened to both directions:
-   * its label is the extra option shown beside the proven-direction one
-   * (#813). Absent leaves the prompt exactly four options.
-   */
+  /** Present when Yes can grant both read and write for the displayed scope. */
   sessionWidth?: { label: string };
   /**
-   * Forwarded asks only: when set, choosing the "for this session" option opens
+   * Forwarded asks only: when set, choosing Yes opens
    * a second select asking whether the grant applies to the requesting subagent
    * only (the least-privilege default) or the whole serving session.
    */
@@ -146,55 +141,42 @@ export async function requestPermissionDecisionFromUi(
   message: string,
   options?: RequestPermissionOptions,
 ): Promise<UnattributedDecision> {
-  const sessionOption = options?.sessionLabel ?? APPROVE_FOR_SESSION_OPTION;
-  const widthOption = options?.sessionWidth?.label;
-  const decisionOptions = [
+  const grantLabel =
+    options?.sessionWidth?.label ??
+    options?.sessionLabel ??
+    APPROVE_FOR_SESSION_OPTION;
+  const selected = await ui.select(`${title}\n${message}\n\n${grantLabel}`, [
     APPROVE_OPTION,
-    sessionOption,
-    ...(widthOption ? [widthOption] : []),
     DENY_OPTION,
-    DENY_WITH_REASON_OPTION,
-  ];
-
-  const selected = await ui.select(`${title}\n${message}`, decisionOptions);
+  ]);
 
   if (selected === APPROVE_OPTION) {
-    return {
-      approved: true,
-      state: "approved",
-    };
-  }
-
-  if (selected === sessionOption || (widthOption && selected === widthOption)) {
-    // The two session options differ only in the width they grant; the scope
-    // question below is the same for both.
-    const width: SessionGrantWidth =
-      selected === widthOption ? "family" : "proven";
+    const width: SessionGrantWidth = options?.sessionWidth
+      ? "family"
+      : "proven";
     if (options?.sessionScope) {
       const scope = await ui.select(`${title}\nApply this session grant to:`, [
         options.sessionScope.subagentLabel,
         options.sessionScope.servingSessionLabel,
       ]);
-      return sessionApproval(
-        // A cancelled scope select (undefined) falls back to the
-        // least-privilege subagent scope.
-        scope === options.sessionScope.servingSessionLabel
-          ? "approved_for_serving_session"
-          : "approved_for_session",
-        width,
-      );
+      if (scope === options.sessionScope.subagentLabel) {
+        return sessionApproval("approved_for_session", width);
+      }
+      if (scope === options.sessionScope.servingSessionLabel) {
+        return sessionApproval("approved_for_serving_session", width);
+      }
+      return createDeniedPermissionDecision();
     }
     return sessionApproval("approved_for_session", width);
   }
 
-  if (selected === DENY_WITH_REASON_OPTION) {
+  if (selected === DENY_OPTION) {
     const denialReason = normalizePermissionDenialReason(
       await ui.input(
-        `${title}\nShare why this request was denied (optional).`,
+        `${title}\nShare why this request was denied.`,
         "Reason shown back to the agent",
       ),
     );
-
     return createDeniedPermissionDecision(denialReason);
   }
 

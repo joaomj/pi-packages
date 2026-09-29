@@ -138,7 +138,7 @@ function makeAsk(value = "/repo/secret.txt"): PromptPayload {
 
 const ASK = makeAsk();
 
-/** Title, blank separator, four decision options, blank, hint. */
+/** Title, grant label, separators, two decision options, and hint. */
 const DECISION_CHROME_ROWS = 8;
 
 async function runPrompt(
@@ -177,15 +177,15 @@ describe("presentInlinePermissionPrompt", () => {
     expect(text).toContain("tool : read");
     expect(text).toContain("path : /repo/secret.txt");
     expect(text).toContain("Yes");
-    expect(text).toContain("No, provide reason");
+    expect(text).toContain("(n) No");
     expect(text).toContain("y");
-    expect(text).toContain("r");
+    expect(text).toContain("n");
   });
 
   it("renders the decision options in the model's display order", () => {
     const { view, captured } = makeFakeView(true);
     void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-    expect(decisionOptionKeys(captured)).toEqual(["y", "s", "n", "r"]);
+    expect(decisionOptionKeys(captured)).toEqual(["y", "n"]);
   });
 
   it("clips every rendered line to the terminal width", () => {
@@ -207,7 +207,7 @@ describe("presentInlinePermissionPrompt", () => {
     it("resolves approved on y, y", async () => {
       expect(await runPrompt(true, ["y", "y"])).toEqual({
         approved: true,
-        state: "approved",
+        state: "approved_for_session",
       });
     });
 
@@ -226,13 +226,14 @@ describe("presentInlinePermissionPrompt", () => {
       await Promise.resolve();
       expect(settled).toBe(false);
       const text = captured.component?.render(80).join("\n") ?? "";
-      expect(text).toContain("Press y again to approve.");
+      expect(text).toContain("Press y again to approve for this session.");
     });
 
-    it("resolves denied on n, n", async () => {
-      expect(await runPrompt(true, ["n", "n"])).toEqual({
+    it("opens the reason input on n, n and returns the submitted reason", async () => {
+      expect(await runPrompt(true, ["n", "n", "x", ENTER])).toEqual({
         approved: false,
-        state: "denied",
+        state: "denied_with_reason",
+        denialReason: "x",
       });
     });
   });
@@ -240,10 +241,7 @@ describe("presentInlinePermissionPrompt", () => {
   describe("configured hotkey bindings", () => {
     const DIGITS = {
       approve: "1",
-      approveSession: "2",
-      approveSessionBoth: "3",
       deny: "4",
-      denyWithReason: "5",
     } as const;
     /** Approve and deny traded, so a character alone cannot predict the outcome. */
     const SWAPPED = {
@@ -260,7 +258,7 @@ describe("presentInlinePermissionPrompt", () => {
         DIGITS,
       );
       void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-      expect(decisionOptionKeys(captured)).toEqual(["1", "2", "4", "5"]);
+      expect(decisionOptionKeys(captured)).toEqual(["1", "4"]);
     });
 
     it("commits the decision whose configured binding was pressed", async () => {
@@ -277,7 +275,13 @@ describe("presentInlinePermissionPrompt", () => {
       );
       captured.component?.handleInput("4");
       captured.component?.handleInput("4");
-      expect(await promise).toEqual({ approved: false, state: "denied" });
+      captured.component?.handleInput("x");
+      captured.component?.handleInput(ENTER);
+      expect(await promise).toEqual({
+        approved: false,
+        state: "denied_with_reason",
+        denialReason: "x",
+      });
     });
 
     it("routes a keystroke by the action it is bound to, not by its letter", async () => {
@@ -293,7 +297,13 @@ describe("presentInlinePermissionPrompt", () => {
         ASK,
       );
       captured.component?.handleInput("y");
-      expect(await promise).toEqual({ approved: false, state: "denied" });
+      captured.component?.handleInput("x");
+      captured.component?.handleInput(ENTER);
+      expect(await promise).toEqual({
+        approved: false,
+        state: "denied_with_reason",
+        denialReason: "x",
+      });
     });
   });
 
@@ -301,17 +311,18 @@ describe("presentInlinePermissionPrompt", () => {
     it("resolves approved on a single y", async () => {
       expect(await runPrompt(false, ["y"])).toEqual({
         approved: true,
-        state: "approved",
+        state: "approved_for_session",
       });
     });
   });
 
   describe("navigation and escape", () => {
     it("resolves the highlighted option on enter", async () => {
-      // y -> s -> n, then enter
-      expect(await runPrompt(true, [ARROW_DOWN, ARROW_DOWN, ENTER])).toEqual({
+      // Move from Yes to No, then submit a reason.
+      expect(await runPrompt(true, [ARROW_DOWN, ENTER, "x", ENTER])).toEqual({
         approved: false,
-        state: "denied",
+        state: "denied_with_reason",
+        denialReason: "x",
       });
     });
 
@@ -335,14 +346,14 @@ describe("presentInlinePermissionPrompt", () => {
       await Promise.resolve();
 
       expect(settled).toBe(false);
-      captured.component?.handleInput("n");
+      captured.component?.handleInput(ESCAPE);
       expect(await promise).toEqual({ approved: false, state: "denied" });
     });
   });
 
   describe("deny with reason", () => {
     it("collects a typed reason and resolves denied_with_reason", async () => {
-      const decision = await runPrompt(false, ["r", "n", "o", "p", "e", ENTER]);
+      const decision = await runPrompt(false, ["n", "n", "o", "p", "e", ENTER]);
       expect(decision).toEqual({
         approved: false,
         state: "denied_with_reason",
@@ -353,7 +364,7 @@ describe("presentInlinePermissionPrompt", () => {
     it("rejects an empty reason and shows an error, then accepts a real one", async () => {
       const { view, captured } = makeFakeView(false);
       const promise = presentInlinePermissionPrompt(view, "T", ASK);
-      captured.component?.handleInput("r"); // opens reason step
+      captured.component?.handleInput("n"); // opens reason step
       captured.component?.handleInput(ENTER); // empty submit -> rejected
       const text = captured.component?.render(80).join("\n") ?? "";
       expect(text).toContain("A reason is required.");
@@ -368,7 +379,7 @@ describe("presentInlinePermissionPrompt", () => {
 
     it("supports backspace while editing the reason", async () => {
       const decision = await runPrompt(false, [
-        "r",
+        "n",
         "a",
         "b",
         "\u007f", // backspace removes "b"
@@ -383,7 +394,7 @@ describe("presentInlinePermissionPrompt", () => {
 
     it("accepts pasted text into the reason", async () => {
       expect(
-        await runPrompt(false, ["r", paste("pasted text"), ENTER]),
+        await runPrompt(false, ["n", paste("pasted text"), ENTER]),
       ).toEqual({
         approved: false,
         state: "denied_with_reason",
@@ -394,7 +405,7 @@ describe("presentInlinePermissionPrompt", () => {
     it("flattens a multi-line paste into one readable line", async () => {
       expect(
         await runPrompt(false, [
-          "r",
+          "n",
           paste("denied because it touches\n~/.ssh"),
           ENTER,
         ]),
@@ -408,7 +419,7 @@ describe("presentInlinePermissionPrompt", () => {
     it("keeps a pasted reason on one row, however long it is", () => {
       const { view, captured } = makeFakeView(false);
       void presentInlinePermissionPrompt(view, "Title", ASK);
-      captured.component?.handleInput("r");
+      captured.component?.handleInput("n");
       const before = captured.component?.render(40) ?? [];
 
       // "q" appears nowhere else in this render; "x" would match `secret.txt`.
@@ -426,7 +437,7 @@ describe("presentInlinePermissionPrompt", () => {
       const { view, captured, setToolsExpanded } = makeFakeView(false);
       const promise = presentInlinePermissionPrompt(view, "Title", ASK);
 
-      captured.component?.handleInput("r");
+      captured.component?.handleInput("n");
       captured.component?.handleInput("a");
       captured.component?.handleInput(CTRL_O);
       captured.component?.handleInput(ENTER);
@@ -440,8 +451,8 @@ describe("presentInlinePermissionPrompt", () => {
     });
 
     it("navigates back to the decision step on escape from the reason step", async () => {
-      // r opens reason, esc returns to decision, then n deny
-      expect(await runPrompt(false, ["r", ESCAPE, "n"])).toEqual({
+      // No opens the reason input; two escapes return and then deny.
+      expect(await runPrompt(false, ["n", ESCAPE, ESCAPE])).toEqual({
         approved: false,
         state: "denied",
       });
@@ -457,7 +468,7 @@ describe("presentInlinePermissionPrompt", () => {
       captured.component?.handleInput("y");
       expect(await promise).toEqual({
         approved: true,
-        state: "approved",
+        state: "approved_for_session",
         decidedBy: { kind: "user", via: "dialog" },
       });
     });
@@ -512,12 +523,12 @@ describe("presentInlinePermissionPrompt", () => {
 
       expect(custom).not.toHaveBeenCalled();
       expect(select).toHaveBeenCalledWith(
-        "Title\ntool : read\npath : /repo/secret.txt",
-        expect.any(Array),
+        "Title\ntool : read\npath : /repo/secret.txt\n\nYes, for this session",
+        ["Yes", "No"],
       );
       expect(decision).toEqual({
         approved: true,
-        state: "approved",
+        state: "approved_for_session",
         decidedBy: { kind: "user", via: "select" },
       });
     });
@@ -547,34 +558,34 @@ describe("presentInlinePermissionPrompt", () => {
       label: 'Yes, allow reads and writes to "/tmp/*" for this session',
     };
 
-    it("renders the width row after the session row when the ask is widenable", () => {
+    it("shows the combined grant above the two options", () => {
       const { view, captured } = makeFakeView(true);
       void presentInlinePermissionPrompt(view, "Permission Required", ASK, {
         sessionLabel: 'Yes, allow writes to "/tmp/*" for this session',
         sessionWidth,
       });
-      expect(decisionOptionKeys(captured)).toEqual(["y", "s", "b", "n", "r"]);
+      expect(decisionOptionKeys(captured)).toEqual(["y", "n"]);
       expect(captured.component?.render(120).join("\n")).toContain(
         sessionWidth.label,
       );
     });
 
-    it("renders no width row for an ask that is not widenable", () => {
+    it("offers only Yes and No when no wider grant is available", () => {
       const { view, captured } = makeFakeView(true);
       void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-      expect(decisionOptionKeys(captured)).toEqual(["y", "s", "n", "r"]);
+      expect(decisionOptionKeys(captured)).toEqual(["y", "n"]);
     });
 
-    it("commits the family width on the b hotkey", async () => {
-      expect(await runPrompt(false, ["b"], { sessionWidth })).toEqual({
+    it("commits the family width on the Yes hotkey", async () => {
+      expect(await runPrompt(false, ["y"], { sessionWidth })).toEqual({
         approved: true,
         state: "approved_for_session",
         sessionGrantWidth: "family",
       });
     });
 
-    it("leaves the s hotkey at the proven width", async () => {
-      expect(await runPrompt(false, ["s"], { sessionWidth })).toEqual({
+    it("keeps the proven width when no wider grant is available", async () => {
+      expect(await runPrompt(false, ["y"])).toEqual({
         approved: true,
         state: "approved_for_session",
       });
@@ -590,14 +601,14 @@ describe("presentInlinePermissionPrompt", () => {
     };
 
     it("commits the subagent scope by default", async () => {
-      expect(await runPrompt(false, ["s", ENTER], options)).toEqual({
+      expect(await runPrompt(false, ["y", ENTER], options)).toEqual({
         approved: true,
         state: "approved_for_session",
       });
     });
 
     it("commits the serving-session scope when the second option is chosen", async () => {
-      expect(await runPrompt(false, ["s", ARROW_DOWN, ENTER], options)).toEqual(
+      expect(await runPrompt(false, ["y", ARROW_DOWN, ENTER], options)).toEqual(
         { approved: true, state: "approved_for_serving_session" },
       );
     });
@@ -635,7 +646,10 @@ describe("presentInlinePermissionPrompt", () => {
       captured.component?.handleInput("y");
       // Unattributed: the inline component states the outcome, and the
       // dispatcher above it names the surface the human answered on.
-      expect(await promise).toEqual({ approved: true, state: "approved" });
+      expect(await promise).toEqual({
+        approved: true,
+        state: "approved_for_session",
+      });
     });
 
     it("toggles during the scope step without committing the grant", async () => {
@@ -647,7 +661,7 @@ describe("presentInlinePermissionPrompt", () => {
         scopeOptions,
       );
 
-      captured.component?.handleInput("s"); // decision -> scope
+      captured.component?.handleInput("y"); // decision -> scope
       captured.component?.handleInput(CTRL_O);
       expect(setToolsExpanded).toHaveBeenNthCalledWith(1, true);
 
@@ -696,7 +710,7 @@ describe("presentInlinePermissionPrompt", () => {
       const { view, captured, setToolsExpanded } = makeFakeView(false, "e");
       const promise = presentInlinePermissionPrompt(view, "Title", ASK);
 
-      captured.component?.handleInput("r"); // decision -> reason
+      captured.component?.handleInput("n"); // decision -> reason
       captured.component?.handleInput("e"); // typed literally, not an app action
       captured.component?.handleInput(ENTER);
 

@@ -1,49 +1,45 @@
 # Session-Scoped Approvals
 
-When any permission resolves to `ask`, the permission dialog offers at least these four options:
+When a permission resolves to `ask`, this fork offers two options:
 
 ```text
-Yes | Yes, allow "<pattern>" for this session | No | No, provide reason
+Yes | No
 ```
 
-Selecting **Yes, allow "\<pattern\>" for this session** approves the current request and records the suggested wildcard pattern as a session rule.
-Subsequent requests that match the pattern skip the prompt for the remainder of the session.
+The prompt shows the effective session grant separately from the options.
+**Yes** approves the current request and records the displayed wildcard pattern as a session rule.
+Subsequent requests that match that rule skip the prompt for the remainder of the session.
+**No** opens the denial-reason input and sends the submitted reason to the agent.
+Canceling never approves a request.
 
-A file-access ask adds a fifth option — see [Grant direction](#grant-direction).
-
-Session approvals are ephemeral — they are never persisted to disk and are cleared on `session_shutdown`.
+Session approvals are ephemeral: they are never persisted to disk and are cleared on `session_shutdown`.
+A forwarded subagent request retains a separate scope choice: the requesting subagent only, or the whole serving session.
+The default is the requesting subagent only.
 
 ## Grant Direction
 
-The `path` and `external_directory` surfaces carry a read/write axis, and the two directions are independent permissions rather than tiers: a write grant does not imply a read.
-When the gate can prove which direction a request needs — a `>` redirect proves a write, `cat` proves a read, the `read` tool proves a read — the session grant is recorded on that direction alone, which is what the prompt named.
-
-That is least privilege, and it costs a second prompt in the read-after-write flow: approving `echo hello > /tmp/out.txt` grants a write, so a following `cat /tmp/out.txt` asks again.
-So an ask whose paths all prove the **same** direction offers both widths:
+The `path` and `external_directory` surfaces carry independent read and write permissions.
+For an ask whose paths all prove the same direction, **Yes** grants both directions for the displayed patterns.
+For example, approving a write to `/tmp/out.txt` can also cover a later read in the displayed `/tmp/*` scope.
 
 ```text
+Yes, allow reads and writes to "/tmp/*" for this session
+
   (y) Yes
-▶ (s) Yes, allow writes to "/tmp/*" for this session
-  (b) Yes, allow reads and writes to "/tmp/*" for this session
   (n) No
-  (r) No, provide reason
 ```
 
-- **`s`** records the proven direction only (`external_directory_write` here).
-  This is the default; a later read of the same path asks again.
-- **`b`** records the bare family key (`external_directory`), which expands onto both directions — exactly the width a config key like `"external_directory": {"/tmp/*": "allow"}` has.
-  A later read of the same path is covered.
+The family grant applies only to the permission surface and patterns shown, not unrestricted file access.
+Other permission surfaces still apply.
+Session rules take precedence over configured rules on the same surface, including narrower denials within the approved pattern.
+A session grant is therefore broader than a one-call approval; inspect the displayed pattern before selecting **Yes**.
 
-The choice is opt-in per ask and never persisted.
-Ignoring `b` grants no more than the prompt named.
+A mixed-direction request, such as `cat /outside/a.ts > /elsewhere/b.ts`, retains its per-path directions because the existing grant model provides no combined-width option.
+Surfaces with no direction axis (`bash`, `mcp`, `skill`, and per-tool surfaces) retain their existing session-pattern scope.
+Two paths in the same directory can derive the same wildcard pattern.
+Read the displayed grant before approving it.
 
-`b` is offered only when one direction phrase describes the whole ask.
-A command that proves a read of one path and a write of another (`cat /outside/a.ts > /elsewhere/b.ts`) records each path on its own direction and offers no width choice, because no single label would be true of both.
-Surfaces with no capability axis — `bash`, `mcp`, `skill`, and the per-tool surfaces — never offer it.
-
-Two paths in the **same** directory derive the same glob, so approving them at either width grants that directory what the prompt showed.
-
-The review log records the width every session grant was taken at, as `sessionGrantWidth: "proven"` or `"family"`.
+The review log records `sessionGrantWidth: "proven"` or `"family"` for each session grant.
 
 ## Suggested Patterns
 

@@ -26,9 +26,9 @@ Permission enforcement extension for the [Pi](https://pi.mariozechner.at/) codin
 
 ## Install
 
-```bash
-pi install npm:@gotgenes/pi-permission-system
-```
+This is the personal Yes/No fork of `@gotgenes/pi-permission-system`.
+The npm package installs the upstream dialog, not this customization.
+Follow the [local-checkout installation](../../README.md#personal-permission-dialog-fork) to use this branch.
 
 ## Quick Start
 
@@ -64,10 +64,11 @@ All permissions use one of three states:
 | `deny`  | Blocks the action with an error message  |
 | `ask`   | Prompts the user for confirmation via UI |
 
-When the dialog prompts, you can approve once or approve a pattern for the rest of the session.
-In an interactive TUI session the prompt is an inline keybind dialog — `y` approve, `s` approve for this session, `n` deny, `r` deny with a reason — where each hotkey arms and a second press confirms (configurable via `doublePressToConfirm`).
-The hotkeys themselves are remappable through `permissionDialogKeys`, which matters if you type with an input method editor: composition mode swallows letter keys before they reach the terminal, and digits do not.
-A file-access ask that proves a single direction offers `b` as well, granting the session both directions instead of only the one the gate proved.
+This fork offers only **Yes** and **No** in terminal and RPC prompts.
+**Yes** approves the displayed pattern for the rest of the session, including both reads and writes when the file-access grant supports that width.
+**No** opens the denial-reason input and returns the submitted reason to the agent.
+The terminal hotkeys are `y` and `n`; each hotkey arms first and a second press confirms (configurable via `doublePressToConfirm`).
+Use `permissionDialogKeys` to remap `approve` and `deny`, for example to digits when an input method editor consumes letter keys.
 The prompt shows one fact per line — who is asking, the tool, the matched rule, the value being decided — within a row budget, so a large tool input cannot take over the transcript; `Ctrl+O` (`app.tools.expand`) expands it to the complete request.
 See [docs/configuration.md](docs/configuration.md#inline-permission-dialog-tui) for the hotkeys and [docs/session-approvals.md](docs/session-approvals.md) for session-scoped rules and pattern suggestions.
 

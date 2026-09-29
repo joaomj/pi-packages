@@ -98,18 +98,12 @@ describe("resolveDialogKeys", () => {
       expect(
         resolve({
           approve: "1",
-          approveSession: "2",
-          approveSessionBoth: "3",
           deny: "4",
-          denyWithReason: "5",
         }),
       ).toEqual({
         keys: {
           approve: "1",
-          approveSession: "2",
-          approveSessionBoth: "3",
           deny: "4",
-          denyWithReason: "5",
         },
         issues: [],
       });
@@ -184,20 +178,6 @@ describe("resolveDialogKeys", () => {
       expect(resolution.issues).toEqual([
         'permissionDialogKeys.approve: "n" is already bound to another ' +
           'decision; keeping the default "y".',
-      ]);
-    });
-
-    it("re-checks after a restored default collides in its turn", () => {
-      // `approve: "b"` collides with the untouched `approveSessionBoth`
-      // default; dropping it restores `approve: "y"`, which then collides with
-      // the surviving `deny: "y"`. One pass would leave that duplicate bound.
-      const resolution = resolve({ approve: "b", deny: "y" });
-      expect(resolution.keys).toEqual(DEFAULT_DIALOG_KEYS);
-      expect(resolution.issues).toEqual([
-        'permissionDialogKeys.approve: "b" is already bound to another ' +
-          'decision; keeping the default "y".',
-        'permissionDialogKeys.deny: "y" is already bound to another ' +
-          'decision; keeping the default "n".',
       ]);
     });
 

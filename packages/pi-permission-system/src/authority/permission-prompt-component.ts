@@ -131,10 +131,7 @@ const DEFAULT_SESSION_LABEL = "Yes, for this session";
 
 const OPTION_LABELS: Record<PromptAction, string> = {
   approve: "Yes",
-  approveSession: DEFAULT_SESSION_LABEL,
-  approveSessionBoth: "Yes, for this session in both directions",
   deny: "No",
-  denyWithReason: "No, provide reason",
 };
 
 export function presentInlinePermissionPrompt(
@@ -280,7 +277,9 @@ class PermissionPromptComponent implements Component {
       "↑/↓ move",
       "enter confirm",
       "esc deny",
-      "press a letter, then again to confirm",
+      this.config.doublePressToConfirm
+        ? "press a key, then again to confirm"
+        : "press a key to confirm",
     ];
     if (this.expanded) {
       keys.push("ctrl+o collapse");
@@ -336,7 +335,7 @@ class PermissionPromptComponent implements Component {
       return { type: "cancel" };
     }
     if (this.state.step === "decision") {
-      const action = visibleActions(this.config).find((option) =>
+      const action = visibleActions().find((option) =>
         matchesKey(data, this.boundKey(option)),
       );
       if (action) {
@@ -361,9 +360,15 @@ class PermissionPromptComponent implements Component {
 
   private renderDecision(width: number): string[] {
     const ask = this.renderAsk(width);
-    const lines = [this.theme.fg("accent", this.title), ...ask.lines, ""];
-    for (const action of visibleActions(this.config)) {
-      const label = this.labelFor(action);
+    const lines = [
+      this.theme.fg("accent", this.title),
+      ...ask.lines,
+      "",
+      this.config.widthLabel ?? this.config.sessionLabel,
+      "",
+    ];
+    for (const action of visibleActions()) {
+      const label = OPTION_LABELS[action];
       const selected = this.state.highlightedAction === action;
       const marker = selected ? "▶" : " ";
       const row = `${marker} (${this.boundKey(action)}) ${label}`;
@@ -382,18 +387,6 @@ class PermissionPromptComponent implements Component {
    */
   private boundKey(action: PromptAction): KeyId {
     return this.config.keys[action] as KeyId;
-  }
-
-  /**
-   * The row label for a key: the two session options carry ask-supplied text
-   * naming what they grant, and the rest are fixed.
-   */
-  private labelFor(action: PromptAction): string {
-    if (action === "approveSession") return this.config.sessionLabel;
-    if (action === "approveSessionBoth") {
-      return this.config.widthLabel ?? OPTION_LABELS.approveSessionBoth;
-    }
-    return OPTION_LABELS[action];
   }
 
   private renderReason(width: number): string[] {

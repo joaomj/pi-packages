@@ -1285,6 +1285,93 @@ describe("ready emitted after service publication", () => {
   });
 });
 
+describe("two-choice file approval scope", () => {
+  it("grants reads and writes only within the displayed session scope and preserves other gates", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-two-choice-"));
+    const allowedDir = join(cwd, "approved");
+    const otherDir = join(cwd, "other");
+    mkdirSync(allowedDir);
+    mkdirSync(otherDir);
+    const first = join(allowedDir, "first.txt");
+    const sibling = join(allowedDir, "sibling.txt");
+    const blocked = join(allowedDir, "blocked.txt");
+    const outside = join(otherDir, "outside.txt");
+    writeGlobalConfig({
+      permission: {
+        "*": "allow",
+        path: { "*": "ask" },
+        write: { [blocked]: "deny" },
+      },
+    });
+    const select = vi
+      .fn<CtxSelect>()
+      .mockResolvedValueOnce("Yes")
+      .mockResolvedValue(undefined);
+    const pi = makeFakePi({ toolNames: ["read", "write"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+    const ctx = makeBaseCtx(cwd, "two-choice-session", { select });
+    await fireSessionStart(pi, ctx);
+    try {
+      const firstResult = await pi.fire(
+        "tool_call",
+        {
+          toolName: "read",
+          toolCallId: "initial-read",
+          input: { path: first },
+        },
+        ctx,
+      );
+      expect(firstResult).toEqual({});
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(select.mock.calls[0]?.[1]).toEqual(["Yes", "No"]);
+      expect(select.mock.calls[0]?.[0]).toContain(
+        `reads and writes to "${allowedDir}/*"`,
+      );
+
+      for (const toolName of ["read", "write"]) {
+        const result = await pi.fire(
+          "tool_call",
+          {
+            toolName,
+            toolCallId: `later-${toolName}`,
+            input: { path: sibling, content: "test" },
+          },
+          ctx,
+        );
+        expect(result).toEqual({});
+      }
+      expect(select).toHaveBeenCalledTimes(1);
+
+      const outsideResult = (await pi.fire(
+        "tool_call",
+        {
+          toolName: "write",
+          toolCallId: "outside-grant",
+          input: { path: outside, content: "test" },
+        },
+        ctx,
+      )) as { block?: boolean };
+      expect(outsideResult.block).toBe(true);
+      expect(select).toHaveBeenCalledTimes(2);
+
+      const blockedResult = (await pi.fire(
+        "tool_call",
+        {
+          toolName: "write",
+          toolCallId: "independent-deny",
+          input: { path: blocked, content: "test" },
+        },
+        ctx,
+      )) as { block?: boolean };
+      expect(blockedResult.block).toBe(true);
+      expect(select).toHaveBeenCalledTimes(2);
+    } finally {
+      await pi.fire("session_shutdown");
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("single source of truth for session state", () => {
   // Regression guard for the split-brain bug: before the fix, the gate path
   // recorded session approvals into a private SessionRules instance that the
@@ -1299,20 +1386,18 @@ describe("single source of truth for session state", () => {
     const pi = makeFakePi({ toolNames: ["demo"] });
     piPermissionSystemExtension(pi as unknown as ExtensionAPI);
 
-    // UI ctx that approves the gate prompt for this session (options[1]).
-    // Return the second option label-agnostically — always the "for this
-    // session" choice regardless of the exact label text.
+    // Yes approves the displayed scope for this session.
     const ctx = makeBaseCtx(cwd, "sot-session", {
       select: async (
         _title: string,
         options: string[],
-      ): Promise<string | undefined> => options[1],
+      ): Promise<string | undefined> => options[0],
     });
 
     await fireSessionStart(pi, ctx);
 
     // Drive a tool_call on "demo"; the gate prompts and the mock selects
-    // options[1], recording a session-scoped approval.
+    // Yes, recording a session-scoped approval.
     await pi.fire(
       "tool_call",
       {
@@ -1758,13 +1843,13 @@ describe("session approvals do not leak across same-cwd session switches", () =>
   // (no module-scoped state bridges the switch — the per-session reset the
   // fresh-jiti load used to provide is gone once the import is cached).
 
-  /** A UI ctx that approves the gate's "for this session" option (options[1]). */
+  /** A UI ctx that selects Yes for session approval. */
   function makeSessionApprovingCtx(cwd: string, sessionId: string): unknown {
     return makeBaseCtx(cwd, sessionId, {
       select: async (
         _title: string,
         options: string[],
-      ): Promise<string | undefined> => options[1],
+      ): Promise<string | undefined> => options[0],
     });
   }
 
@@ -1782,7 +1867,7 @@ describe("session approvals do not leak across same-cwd session switches", () =>
     const firstCtx = makeSessionApprovingCtx(cwd, "switch-session-1");
     await fireSessionStart(firstPi, firstCtx);
 
-    // The gate prompts and the mock selects options[1], recording a
+    // The gate prompts and the mock selects Yes, recording a
     // session-scoped approval the service can read back.
     await firstPi.fire(
       "tool_call",
@@ -1888,7 +1973,7 @@ describe("tool-surface prose under a custom system prompt", () => {
 
 describe("forwarded grant-scope selection round-trip", () => {
   // A UI-present serving ctx whose `select` drives the two-step forwarded
-  // dialog: the main prompt picks "for this session" (options[1]); the scope
+  // dialog: the main prompt picks Yes; the scope
   // prompt (options include a "The whole session …" label) returns the chosen
   // scope. Every `select` options array is recorded so a test can prove the
   // human was (or was not) re-prompted.
@@ -1910,7 +1995,7 @@ describe("forwarded grant-scope selection round-trip", () => {
         if (wholeOption) {
           return scope === "whole" ? wholeOption : options[0];
         }
-        return options[1];
+        return "Yes";
       },
     });
   }
@@ -2291,9 +2376,7 @@ describe("configured permission-dialog hotkeys reach the inline dialog", () => {
       permission: { "*": "allow", demo: "ask" },
       permissionDialogKeys: {
         approve: "1",
-        approveSession: "2",
         deny: "4",
-        denyWithReason: "5",
       },
     });
 
@@ -2311,13 +2394,15 @@ describe("configured permission-dialog hotkeys reach the inline dialog", () => {
     ) as Promise<{ block?: true }>;
     await sleep(0);
 
-    expect(optionKeys(render())).toEqual(["1", "2", "4", "5"]);
+    expect(optionKeys(render())).toEqual(["1", "4"]);
 
     // The default letter is no longer live; the configured one commits.
     press("n");
     press("n");
     press("4");
     press("4");
+    press("not now");
+    press("\r");
     expect((await decision).block).toBe(true);
 
     rmSync(cwd, { recursive: true, force: true });
@@ -2360,9 +2445,11 @@ describe("configured permission-dialog hotkeys reach the inline dialog", () => {
       ctx,
     ) as Promise<{ block?: true }>;
     await sleep(0);
-    expect(optionKeys(render())).toEqual(["y", "s", "n", "r"]);
+    expect(optionKeys(render())).toEqual(["y", "n"]);
     press("n");
     press("n");
+    press("not now");
+    press("\r");
     expect((await decision).block).toBe(true);
 
     rmSync(cwd, { recursive: true, force: true });

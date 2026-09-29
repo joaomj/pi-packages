@@ -6,18 +6,8 @@
  * translation layer has to keep in step.
  */
 
-/**
- * The dialog's five decisions, named by what they do.
- *
- * Distinct from the character that selects one: a binding is configurable and
- * an identity is not, so a rebound dialog still decides the same five things.
- */
-export type PromptAction =
-  | "approve"
-  | "approveSession"
-  | "approveSessionBoth"
-  | "deny"
-  | "denyWithReason";
+/** The two decisions offered by the permission dialog. */
+export type PromptAction = "approve" | "deny";
 
 /** Every action's bound character, complete. */
 export type DialogKeyBindings = Readonly<Record<PromptAction, string>>;
@@ -38,21 +28,11 @@ export interface DialogKeyResolution {
 }
 
 /** The decisions in the order a config's overrides are considered. */
-const ACTION_ORDER: readonly PromptAction[] = [
-  "approve",
-  "approveSession",
-  "approveSessionBoth",
-  "deny",
-  "denyWithReason",
-];
+const ACTION_ORDER: readonly PromptAction[] = ["approve", "deny"];
 
-/** The shipped bindings, unchanged since the dialog was introduced. */
 export const DEFAULT_DIALOG_KEYS: DialogKeyBindings = {
   approve: "y",
-  approveSession: "s",
-  approveSessionBoth: "b",
   deny: "n",
-  denyWithReason: "r",
 };
 
 const LOWERCASE_LETTERS = "abcdefghijklmnopqrstuvwxyz";
@@ -133,7 +113,7 @@ export function resolveDialogKeys(
   // Dropping an override restores its default, and that default can collide
   // with an override that survived the previous look — so this settles rather
   // than checks once. Each round drops at least one override and there are at
-  // most five, and the all-defaults state it terminates at is collision-free.
+  // most two, and the all-defaults state it terminates at is collision-free.
   for (let round = ACTION_ORDER.length; round > 0; round--) {
     const contested = contestedCharacters(accepted);
     if (contested.size === 0) break;

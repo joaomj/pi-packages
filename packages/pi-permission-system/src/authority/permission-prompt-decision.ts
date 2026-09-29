@@ -20,48 +20,15 @@ import {
 /** Which sub-view the dialog is showing. */
 export type PromptStep = "decision" | "reason" | "scope";
 
-/**
- * The decisions in display order.
- *
- * `approveSessionBoth` is conditional: it appears only for an ask whose session
- * grant can be widened to both directions (#813), so the roster an ask actually
- * offers comes from {@link visibleActions} rather than from this list.
- */
-const OPTION_ORDER: readonly PromptAction[] = [
-  "approve",
-  "approveSession",
-  "approveSessionBoth",
-  "deny",
-  "denyWithReason",
-];
+const OPTION_ORDER: readonly PromptAction[] = ["approve", "deny"];
 
-const NARROW_OPTION_ORDER: readonly PromptAction[] = OPTION_ORDER.filter(
-  (action) => action !== "approveSessionBoth",
-);
-
-/**
- * The decision step's options, in display order.
- *
- * A function of the config rather than an exported constant, so which options
- * an ask offers is decided in the model and the component renders whatever it
- * is handed — two copies of the roster would be two places to teach about a
- * conditional option.
- *
- * The width option is offered iff the ask supplied a label for it, so an ask
- * that proves no single direction is rendered and navigated exactly as before.
- */
-export function visibleActions(
-  config: PromptModelConfig,
-): readonly PromptAction[] {
-  return config.widthLabel ? OPTION_ORDER : NARROW_OPTION_ORDER;
+export function visibleActions(): readonly PromptAction[] {
+  return OPTION_ORDER;
 }
 
 const OPTION_VERBS: Record<PromptAction, string> = {
-  approve: "approve",
-  approveSession: "approve for this session",
-  approveSessionBoth: "approve both directions for this session",
-  deny: "deny",
-  denyWithReason: "deny with a reason",
+  approve: "approve for this session",
+  deny: "provide a denial reason",
 };
 
 /** Static configuration for a single prompt presentation. */
@@ -75,20 +42,11 @@ export interface PromptModelConfig {
    * option's identity and the key that selects it are separate values.
    */
   keys: DialogKeyBindings;
-  /** Label shown beside the approve-for-session option. */
+  /** Session grant description shown above the choices. */
   sessionLabel: string;
-  /**
-   * Label for the both-directions session option (#813).
-   *
-   * Its presence is what offers the option: an ask whose grants prove no
-   * single direction supplies none, and the roster stays four keys.
-   */
+  /** Present when the session grant supports both read and write. */
   widthLabel?: string;
-  /**
-   * Forwarded asks only: when set, confirming `s` opens a second step choosing
-   * whether the grant applies to the requesting subagent only (least-privilege
-   * default) or the whole serving session.
-   */
+  /** Forwarded asks retain a separate subagent/serving-session scope choice. */
   sessionScope?: NonNullable<RequestPermissionOptions["sessionScope"]>;
 }
 
@@ -98,7 +56,7 @@ export interface PromptViewState {
   highlightedAction: PromptAction;
   /** Set only while awaiting the confirming second press of a hotkey. */
   armedAction?: PromptAction;
-  /** "Press y again to approve." while armed; empty otherwise. */
+  /** Confirmation hint while armed; empty otherwise. */
   hint: string;
   /** Set when an empty reason submit is rejected. */
   reasonError?: string;
@@ -110,7 +68,7 @@ export interface PromptViewState {
    * Held on the state rather than passed to the scope step, because a
    * forwarded ask commits the two choices in different steps. Reset to
    * `"proven"` on every return to the decision step, so a width the user
-   * backed out of cannot ride along with a later narrow choice.
+   * backed out of cannot remain on a canceled decision.
    */
   grantWidth: SessionGrantWidth;
 }
@@ -175,7 +133,6 @@ function reduceDecisionStep(
       return render({
         ...state,
         highlightedAction: shiftAction(
-          config,
           state.highlightedAction,
           event.direction,
         ),
@@ -183,7 +140,7 @@ function reduceDecisionStep(
         hint: "",
       });
     case "hotkey":
-      return visibleActions(config).includes(event.action)
+      return visibleActions().includes(event.action)
         ? pressHotkey(config, state, event.action)
         : render(state);
     case "confirm":
@@ -217,28 +174,19 @@ function commit(
   action: PromptAction,
 ): PromptOutcome {
   switch (action) {
-    case "approve":
-      return {
-        kind: "decision",
-        decision: { approved: true, state: "approved" },
-      };
     case "deny":
-      return { kind: "decision", decision: createDeniedPermissionDecision() };
-    case "denyWithReason":
       return render({
         ...state,
         step: "reason",
-        highlightedAction: "denyWithReason",
+        highlightedAction: "deny",
         armedAction: undefined,
         hint: "",
         reasonError: undefined,
       });
-    case "approveSession":
-    case "approveSessionBoth": {
-      // The two session options differ only in the width they grant; which
-      // scope they land on is the forwarded scope step's separate question.
-      const grantWidth: SessionGrantWidth =
-        action === "approveSessionBoth" ? "family" : "proven";
+    case "approve": {
+      const grantWidth: SessionGrantWidth = config.widthLabel
+        ? "family"
+        : "proven";
       if (config.sessionScope) {
         return render({
           ...state,
@@ -338,11 +286,10 @@ function reduceScopeStep(
 }
 
 function shiftAction(
-  config: PromptModelConfig,
   current: PromptAction,
   direction: "up" | "down",
 ): PromptAction {
-  const actions = visibleActions(config);
+  const actions = visibleActions();
   const index = actions.indexOf(current);
   const delta = direction === "down" ? 1 : -1;
   const next = (index + delta + actions.length) % actions.length;

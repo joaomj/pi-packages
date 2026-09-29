@@ -104,7 +104,7 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `permissionReviewLog`       | `true`   | Enables the permission request/denial review log at `logs/pi-permission-system-permission-review.jsonl`. Records bash command strings, masked only where a name binds the secret — see [Log file sensitivity](#log-file-sensitivity)         |
 | `yoloMode`                  | `false`  | Auto-approves `ask` results instead of prompting when yolo mode is enabled                                                                                                                                                                   |
 | `doublePressToConfirm`      | `true`   | Requires a confirming second press of a decision hotkey in the inline TUI dialog (see below). TUI sessions only; set to `false` for single-press.                                                                                            |
-| `permissionDialogKeys`      | —        | Remaps the inline TUI dialog's decision hotkeys (see below). One printable character per decision; omitted decisions keep `y` / `s` / `b` / `n` / `r`.                                                                                       |
+| `permissionDialogKeys`      | —        | Remaps the inline TUI dialog's decision hotkeys (see below). One printable character per decision; omitted decisions keep `y` / `n`.                                                                                                         |
 | `forwardingTimeoutMs`       | `600000` | How long a subagent waits for the parent session to answer a forwarded permission request, in milliseconds. A child whose parent is not draining its inbox gives up in ~2 s regardless, whether that parent runs in this process or its own. |
 | `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                                              |
 | `promptFieldMaxWidth`       | `400`    | Max characters of any one field shown in a permission prompt. This is what bounds a single long field (a here-string command, say) that would otherwise fill the prompt through wrapping.                                                    |
@@ -121,20 +121,16 @@ No debug output is printed to the terminal.
 
 In an interactive **TUI** session, an `ask` decision opens an inline keybind dialog with one-key shortcuts:
 
-| Key | Action                                                            |
-| --- | ----------------------------------------------------------------- |
-| `y` | Approve once                                                      |
-| `s` | Approve for this session, in the direction the gate proved        |
-| `b` | Approve for this session in **both** directions (see below)       |
-| `n` | Deny                                                              |
-| `r` | Deny with a reason (opens an inline editor; a reason is required) |
+| Key | Option | Action                                                                            |
+| --- | ------ | --------------------------------------------------------------------------------- |
+| `y` | Yes    | Approve the displayed scope for this session, including read/write when available |
+| `n` | No     | Open the denial-reason editor; a reason is required to submit                     |
 
-`b` appears only for an ask whose paths all prove the same direction — a read or a write, but not both.
-Every other ask shows the four options above without it.
-See [session-approvals.md](session-approvals.md#grant-direction) for what the two widths grant.
+The effective session grant appears above the two options.
+See [session-approvals.md](session-approvals.md#grant-direction) for its direction and scope limits.
 
 Arrow keys / `j`/`k` move the highlight, `enter` confirms the highlighted option, and `esc` denies.
-With `doublePressToConfirm` enabled (the default), a hotkey **arms** its action and shows a `Press y again to approve.` hint; press the same key again to commit.
+With `doublePressToConfirm` enabled (the default), a hotkey **arms** its action and shows a `Press y again to approve for this session.` hint; press the same key again to commit.
 Set `doublePressToConfirm` to `false` to commit on the first press.
 
 #### Remapping the hotkeys
@@ -145,20 +141,18 @@ Set `permissionDialogKeys` to bind any decision to a different key:
 {
   "permissionDialogKeys": {
     "approve": "1",
-    "approveSession": "2",
-    "approveSessionBoth": "3",
-    "deny": "4",
-    "denyWithReason": "5"
+    "deny": "2"
   }
 }
 ```
 
-The five decision names above are the only keys the map accepts, and each is optional — a decision you do not name keeps its default letter.
+Only `approve` and `deny` are accepted, and both are optional.
+Remove the upstream `approveSession`, `approveSessionBoth`, and `denyWithReason` keys before loading this fork; otherwise strict validation rejects the configuration.
 
 This exists for input method editors.
 While an IME is composing — Chinese Pinyin or Wubi, Japanese, Korean — a letter keypress is consumed by the candidate buffer and never reaches the terminal, so `y` and `n` do nothing and the dialog looks frozen.
 The usual way out of a candidate popup is `esc`, which *does* reach the terminal and which this dialog reads as a denial, so a call you meant to approve gets refused.
-Digits are unaffected on essentially every layout, which is why `1`–`5` is the mapping to reach for.
+Digits are unaffected on essentially every layout, which is why `1` and `2` are suitable bindings.
 
 Each value is a **single printable character**: a lowercase letter, a digit, or a symbol.
 Three things are refused:
@@ -196,7 +190,9 @@ Raise `promptMaxRows` to see more evidence inline; raise `promptFieldMaxWidth` t
 
 Non-TUI contexts render the same facts under the same budget, without the colour or the expansion.
 
-Non-TUI contexts (RPC / frontend-driven sessions) keep the single-select prompt and are unaffected by `doublePressToConfirm`.
+Non-TUI contexts (RPC / frontend-driven sessions) show the same **Yes** and **No** choices and are unaffected by `doublePressToConfirm`.
+Choosing **No** requests a reason; canceling or submitting a blank reason denies without a reason.
+Canceling a decision or forwarded-scope selection never approves the request.
 
 ### `piInfrastructureReadPaths` patterns
 

@@ -297,10 +297,7 @@ describe("unifiedConfigSchema", () => {
       const result = unifiedConfigSchema.safeParse({
         permissionDialogKeys: {
           approve: "1",
-          approveSession: "2",
-          approveSessionBoth: "3",
           deny: "4",
-          denyWithReason: "5",
         },
       });
       expect(result.success).toBe(true);
